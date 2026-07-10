@@ -37,6 +37,8 @@ executor runs in a clean child session and only follows the plan file.
 | Agent | Model | Key config |
 |---|---|---|
 | planner (primary) | `opencode-go/deepseek-v4-pro` | `temperature: 0.1` · edit: deny except `docs/plans/*` · bash: read-only whitelist (`git log/diff/status`, `grep`) + `flutter analyze/test` · task: `explore` allow, `executor` ask · question allow |
+| planner-auto (primary) | `opencode-go/deepseek-v4-pro` | same as planner except task: `plan-reviewer` + `executor` **allow** — dispatches with no allow dialog |
+| plan-reviewer (subagent) | `opencode-go/deepseek-v4-pro` | `temperature: 0` · `hidden: true` · read-only (edit deny, bash whitelist) · reviews the detailed plan with a clean context before auto-dispatch |
 | executor (subagent) | `opencode-go/deepseek-v4-flash` | `temperature: 0` · `steps: 40` · `hidden: true` · edit/bash allow · webfetch deny |
 | explore (built-in) | `opencode-go/deepseek-v4-flash` | overridden in `opencode.json` (read-only by design) |
 
@@ -54,6 +56,9 @@ executor runs in a clean child session and only follows the plan file.
 | `.opencode/agents/planner.md` | Primary agent — 5 steps: Explore → Clarify → High-level plan → Detailed plan → Execute & verify |
 | `.opencode/agents/executor.md` | Execution subagent — reads the plan file, branch + commit per step, stops on blockers |
 | `.opencode/commands/planner.md` | Entry point: `/planner <content>` |
+| `.opencode/agents/planner-auto.md` | Autonomous variant — same 5 steps, self-reviews instead of asking for approval; only stops at Clarify |
+| `.opencode/agents/plan-reviewer.md` | Clean-context reviewer (auto mode) — checks the detailed plan for self-containedness, ticket coverage, format and verifiability before dispatch |
+| `.opencode/commands/planner-auto.md` | Entry point: `/planner-auto <content>` |
 | `.opencode/skills/executor-plan/` | Plan format rules for a cheap-model executor: ≤400 lines/phase, pre-written code, verify + expected output, near-miss files, escape hatches. Language-agnostic |
 | `opencode.json` | Cheap-model override for the `explore` subagent |
 | `claude-code/.claude/`, `codex/.codex/` | Ports (see tables above) |
@@ -112,3 +117,30 @@ installing agents/skills into a local project.
 Approve at 3 checkpoints: high-level plan (Execute/Modify/Cancel) →
 detailed plan file in `docs/plans/` (Dispatch/Modify/Cancel) → the
 allow dialog when the executor is dispatched.
+
+### Auto mode
+
+```
+/planner-auto TICKET-123: issue description...
+```
+
+Same 5-step workflow with all 3 checkpoints removed: the planner
+self-reviews the high-level plan, saves the detailed plan, and
+dispatches the executor automatically (`task: executor: allow` on
+OpenCode). It still asks clarifying questions when the ticket is
+ambiguous (Step 2), and after 2 failed retries it stops with a
+blocker report instead of asking how to proceed.
+
+Before dispatch, a `plan-reviewer` subagent (strong model, read-only,
+clean context) reads the plan file exactly the way the executor will
+and checks self-containedness, ticket coverage, executor-plan format
+and verifiability. Blocking issues send the plan back for revision
+(max 2 review rounds, then stop with a blocker report). It replaces
+the human review of the plan file, not the human review of the code.
+
+⚠️ Code is written and committed without your review — inspect
+`git diff` on the `ticket/<id>` branch afterwards. On Claude Code
+there is no permission block for the planner: run with a permission
+mode that allows edits without prompting (e.g.
+`--permission-mode acceptEdits`) and do NOT use plan mode with this
+command.
