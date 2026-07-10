@@ -76,7 +76,7 @@ if [ "$TARGET" = "all" ]; then
   FLAGS="--global"
   $FORCE && FLAGS="$FLAGS --force"
   for t in opencode claude codex; do
-    "$0" --target "$t" $FLAGS
+    bash "$0" --target "$t" $FLAGS
     echo ""
   done
   exit 0
