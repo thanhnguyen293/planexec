@@ -62,6 +62,7 @@ executor runs in a clean child session and only follows the plan file.
 | `.opencode/skills/executor-plan/` | Plan format rules for a cheap-model executor: ≤400 lines/phase, pre-written code, verify + expected output, near-miss files, escape hatches. Language-agnostic |
 | `opencode.json` | Cheap-model override for the `explore` subagent |
 | `claude-code/.claude/`, `codex/.codex/` | Ports (see tables above) |
+| `web/` | Agent monitor — realtime web UI for `opencode serve` (see below) |
 
 The `executor-plan` skill is shared verbatim across all three (same
 SKILL.md standard).
@@ -144,3 +145,17 @@ there is no permission block for the planner: run with a permission
 mode that allows edits without prompting (e.g.
 `--permission-mode acceptEdits`) and do NOT use plan mode with this
 command.
+
+## Agent monitor (web UI)
+
+Watch the planner/executor tree live in a browser — which agent runs on
+which model, sub-agent (subtask) spawns, tool activity, tokens and cost:
+
+```bash
+opencode serve --port 4096 --cors http://127.0.0.1:8080
+python3 -m http.server 8080 -d web
+# open http://127.0.0.1:8080  (or /?demo=1 to preview without a server)
+```
+
+Zero dependencies (plain HTML/JS over the `opencode serve` SSE bus).
+Details: [web/README.md](web/README.md).

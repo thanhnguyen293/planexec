@@ -61,6 +61,7 @@ chạy trong session con sạch và chỉ làm theo file plan.
 | `.opencode/skills/executor-plan/` | Rule format plan cho executor model rẻ: ≤400 dòng/phase, code viết sẵn, verify + expected output, near-miss files, escape hatches. Đa ngôn ngữ |
 | `opencode.json` | Override model rẻ cho subagent `explore` |
 | `claude-code/.claude/`, `codex/.codex/` | Bản port (xem bảng trên) |
+| `web/` | Agent monitor — web UI realtime cho `opencode serve` (xem bên dưới) |
 
 Skill `executor-plan` dùng chung nguyên văn cho cả 3 (cùng chuẩn SKILL.md).
 
@@ -140,3 +141,17 @@ plan file, KHÔNG thay việc bạn review code.
 planner không có permission block: chạy với permission mode cho phép
 edit không cần hỏi (vd `--permission-mode acceptEdits`) và KHÔNG dùng
 plan mode với lệnh này.
+
+## Agent monitor (web UI)
+
+Xem cây planner/executor realtime trên browser — agent nào chạy model
+nào, spawn sub-agent (subtask) nào, tool đang chạy, tokens và cost:
+
+```bash
+opencode serve --port 4096 --cors http://127.0.0.1:8080
+python3 -m http.server 8080 -d web
+# mở http://127.0.0.1:8080  (hoặc /?demo=1 để xem thử không cần server)
+```
+
+Zero dependency (HTML/JS thuần trên SSE bus của `opencode serve`).
+Chi tiết: [web/README.md](web/README.md).
