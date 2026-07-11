@@ -307,10 +307,12 @@ function connect() {
 function scheduleRender() {
   if (state.renderQueued) return;
   state.renderQueued = true;
-  requestAnimationFrame(() => {
+  // setTimeout, not requestAnimationFrame: rAF pauses in background tabs,
+  // freezing the monitor until refocused
+  setTimeout(() => {
     state.renderQueued = false;
     render();
-  });
+  }, 50);
 }
 
 function esc(s) {
@@ -459,7 +461,12 @@ function partHTML(part) {
         (part.description ? `<div class="desc">${esc(trunc(part.description, 200))}</div>` : "") + `</div>`;
     case "agent":
       return `<div class="part-subtask">↳ agent <b>${esc(part.name)}</b></div>`;
+    case "file": {
+      const name = part.filename || part.file?.path || part.url || "";
+      return name ? `<div class="part-tool"><span>📎 ${esc(trunc(name, 120))}</span></div>` : "";
+    }
     default:
+      // step-start / step-finish / snapshot / patch etc. — nothing to show
       return "";
   }
 }
@@ -484,7 +491,7 @@ function renderDetail() {
     return;
   }
 
-  const ids = [...store.keys()].sort();
+  const ids = [...store.keys()].sort().slice(-80); // cap: long sessions stay snappy
   const html = ids.map((mid) => {
     const { info, parts } = store.get(mid);
     const head = [`<span class="role">${esc(info.role || "?")}</span>`];
@@ -498,14 +505,23 @@ function renderDetail() {
     const partIds = [...parts.keys()].sort();
     const body = partIds.map((pid) => partHTML(parts.get(pid))).filter(Boolean).join("");
     const error = info.error ? `<div class="msg-error">${esc(info.error.name || "error")}: ${esc(info.error.data?.message || "")}</div>` : "";
+    // skip messages with nothing to show (only step/snapshot/patch parts):
+    // they render as rows of empty boxes on real sessions
+    if (!body && !error && head.length === 1) return "";
     return `<div class="msg"><div class="msg-head">${head.join("")}</div>` +
       (body ? `<div class="msg-body">${body}</div>` : "") + error + `</div>`;
-  }).join("");
+  }).filter(Boolean).join("");
 
   // skip identical rebuilds so the timeline keeps its scroll position
   if (html !== state._timelineHTML) {
+    const el = els.timeline;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const switched = state._timelineSession !== s.id;
     state._timelineHTML = html;
-    els.timeline.innerHTML = html;
+    state._timelineSession = s.id;
+    el.innerHTML = html;
+    // newest messages live at the bottom — follow them
+    if (switched || nearBottom) el.scrollTop = el.scrollHeight;
   }
 }
 
