@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>planexec · agent monitor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">
+      <span class="logo">◆</span>
+      <span class="name">agent monitor</span>
+      <span class="sub">opencode</span>
+    </div>
+    <div class="conn">
+      <input id="server-url" type="text" spellcheck="false" placeholder="http://127.0.0.1:4096" />
+      <button id="connect-btn">Connect</button>
+      <button id="demo-btn" title="Preview UI with synthetic data">Demo</button>
+      <span id="conn-dot" class="dot off" title="disconnected"></span>
+      <span id="conn-label">disconnected</span>
+    </div>
+    <div class="totals">
+      <span class="stat"><b id="stat-sessions">0</b> sessions</span>
+      <span class="stat"><b id="stat-active">0</b> active</span>
+      <span class="stat"><b id="stat-cost">$0.00</b> total</span>
+    </div>
+  </header>
+
+  <main id="layout">
+    <section id="tree-pane">
+      <div id="tree" class="tree"></div>
+      <div id="empty" class="empty">
+        <p>No sessions yet.</p>
+        <p class="hint">
+          Start the server with CORS for this origin:<br/>
+          <code id="serve-hint">opencode serve --port 4096 --cors http://127.0.0.1:8080</code><br/>
+          then run an agent in another terminal and hit <b>Connect</b>.<br/>
+          Or press <b>Demo</b> to preview with fake data.
+        </p>
+      </div>
+    </section>
+
+    <aside id="detail-pane" class="hidden">
+      <div class="detail-head">
+        <span id="detail-title"></span>
+        <button id="detail-close" title="close">×</button>
+      </div>
+      <div id="detail-meta"></div>
+      <div id="timeline"></div>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
