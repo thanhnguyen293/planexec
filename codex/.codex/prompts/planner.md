@@ -12,6 +12,9 @@ required checkpoints.
   type only.
 - Do not load execution skills (code/test) while planning - reference
   them by name in the plan for the executor to load.
+- Every approval checkpoint and clarification must be an explicit
+  question listing the options; STOP and wait for my answer - never
+  assume approval.
 
 ## Step 1 — Explore
 Scale to the task: for broad scope, spawn up to 3 explore subagents in
@@ -22,8 +25,8 @@ per pattern.
 
 ## Step 2 — Clarify
 If ambiguity remains (multiple valid approaches, missing requirements,
-data model decisions, scope) → ask me, batched in one round. Skip if
-the ticket is unambiguous.
+data model decisions, scope) → ask me, batched in one round (up to 4
+questions). Skip if the ticket is unambiguous.
 
 ## Step 3 — High-level plan
 Present a scannable plan for approval (no full code): Goal (one
@@ -37,17 +40,47 @@ Write the plan with the executor-plan skill (format and constraints
 for a cheap-model executor). The plan must be fully self-contained:
 the executor runs with a clean context. Save to
 `docs/plans/<ticket-id>.md` (split into `-phase-N.md` files if over
-400 lines). Report the file path, then ask me:
+400 lines).
+
+Plan for parallelism when splitting phases. Two phases may run in
+parallel ONLY if their Change Maps touch DISJOINT file sets AND
+neither consumes the other's output. Group phases into ordered
+"waves": phases in the same wave are mutually independent
+(parallel-safe); waves run in order. Add an `## Execution waves`
+section to the top-level plan, e.g.:
+  - Wave 1 (parallel): phase-1a.md, phase-1b.md
+  - Wave 2 (needs Wave 1): phase-2.md
+If everything is interdependent, use one phase per wave (fully
+sequential — same behavior as before).
+
+Report the file path(s) + the wave layout, then ask me:
 Dispatch / Modify / Cancel.
 
 ## Step 5 — Execute & verify
-Spawn the `executor` subagent with ONLY the plan file path (one phase
-file per dispatch, sequential, green before next). When it returns:
-do NOT trust its report - read git diff against the plan and run the
-Final verification commands yourself. On failure or blocker → tell me,
-revise the plan, re-dispatch max 2 times (never retry silently);
-beyond that → ask me how to proceed. On pass → summarize: work done,
-deviations from the plan, verification results, next steps.
+Run wave by wave in order; a wave must be fully green before the next
+starts. First ensure the integration branch `ticket/<id>` exists and
+is checked out (waves branch off it).
+
+- Single-phase wave: spawn the `executor` subagent with ONLY that
+  phase file path (no isolation needed).
+- Multi-phase wave: if your environment can run several executor
+  subagents concurrently, isolate each phase first:
+  `git worktree add .worktrees/<phase> -b ticket/<id>-<phase> ticket/<id>`,
+  give each executor ONLY its own phase file path + its worktree path
+  (`.worktrees/<phase>/`) + its branch (`ticket/<id>-<phase>`), and
+  when the whole wave returns merge each `ticket/<id>-<phase>` into
+  `ticket/<id>` and remove the worktrees. Disjoint file sets ⇒ no
+  conflicts; a merge conflict means the wave split was wrong — stop
+  and ask me. If concurrent executors are NOT available, run the
+  wave's phases sequentially (order within a wave does not matter).
+
+After each wave: do NOT trust executor reports - read git diff
+against the plan and run the Final verification commands yourself on
+the merged tree. On failure or blocker → tell me, revise the plan,
+re-dispatch max 2 times (never retry silently); beyond that → ask me
+how to proceed. Advance to the next wave only on green. After the
+final wave → summarize: work done, deviations from the plan,
+verification results, next steps.
 
 ---
 

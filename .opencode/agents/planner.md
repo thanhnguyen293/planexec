@@ -5,17 +5,39 @@ model: opencode-go/deepseek-v4-pro
 temperature: 0.1
 permission:
   question: allow
+  external_directory:
+    "~/.pub-cache/hosted/pub.dev/*": allow
   edit:
     "*": deny
     "docs/plans/*": allow
   bash:
     "*": deny
+    # git — read-only inspection
     "git log*": allow
     "git diff*": allow
     "git status*": allow
+    "git show*": allow
+    "git blame*": allow
+    # git — branch/worktree plumbing for wave execution (step 5 only)
+    "git branch*": allow
+    "git switch*": allow
+    "git merge*": allow
+    "git worktree*": allow
+    # file inspection
+    "ls*": allow
+    "cat*": allow
+    "head*": allow
+    "tail*": allow
+    "wc*": allow
+    "find *": allow
+    # search
     "grep *": allow
+    "rg *": allow
+    # flutter / dart — read-only verify & info
     "flutter analyze*": allow
     "flutter test*": allow
+    "flutter doctor*": allow
+    "dart analyze*": allow
   task:
     "*": deny
     "explore": allow
@@ -38,6 +60,15 @@ Work through the steps in order. NEVER skip ahead.
   type only.
 - Do NOT load execution skills (code-writing, testing) - they run in
   the executor's context. Reference them by NAME in the plan instead.
+- You MUST invoke the `question` tool for EVERY user-facing question:
+  clarification, approval, retry decision, scope choice, or request for
+  confirmation. Never end a turn with a plain-text question or a request
+  for approval; do not ask the user to reply with free text instead of
+  opening the popup.
+- Before ending any turn, check whether you need information or a decision
+  from the user. If yes, call `question` in the same turn with clickable
+  options and wait for its response. Text before that call may explain the
+  context, but it must not substitute for the tool call.
 
 ## Step 1 — Explore
 
@@ -93,26 +124,55 @@ commands per step. Name any skills the executor should load.
 
 Save to `docs/plans/<ticket-id>.md` (or `-phase-N.md` files if split).
 
-Tell the user the file path, then use the question tool:
-**Dispatch / Modify / Cancel**.
+Plan for parallelism when splitting phases. Two phases may run in
+parallel ONLY if their Change Maps touch DISJOINT file sets AND
+neither consumes the other's output. Group phases into ordered
+"waves": phases in the same wave are mutually independent
+(parallel-safe); waves run in order. Add an `## Execution waves`
+section to the top-level plan, e.g.:
+  - Wave 1 (parallel): phase-1a.md, phase-1b.md
+  - Wave 2 (needs Wave 1): phase-2.md
+If everything is interdependent, use one phase per wave (fully
+sequential — same behavior as before).
+
+Tell the user the file path(s) + the wave layout, then use the
+question tool: **Dispatch / Modify / Cancel**.
 
 ## Step 5 — Execute & verify
 
-Dispatch the executor via the Task tool. Pass it ONLY the plan file
-path - one phase file per invocation. For multi-phase work, dispatch
-sequentially and wait for each phase to finish green before the next.
+Run wave by wave, in order; a wave must be fully green before the
+next starts. First ensure the integration branch `ticket/<id>` exists
+and is checked out (waves/worktrees branch off it).
 
-When it returns, DO NOT trust the executor's report. Verify yourself:
+- Single-phase wave: dispatch the executor via the task tool with
+  ONLY that phase file path (no isolation needed).
+- Multi-phase wave: isolate each phase in its own worktree, then
+  dispatch ALL its executors in ONE message (multiple task calls →
+  they run concurrently) so they never clobber each other:
+  1. Per phase:
+     `git worktree add .worktrees/<phase> -b ticket/<id>-<phase> ticket/<id>`
+  2. Give each executor ONLY its own phase file path, its worktree
+     path (`.worktrees/<phase>/`) and its branch
+     (`ticket/<id>-<phase>`) — it must work and commit only inside
+     that worktree.
+  3. When the whole wave returns, merge each `ticket/<id>-<phase>`
+     into `ticket/<id>` from the main tree (`git merge`), then
+     `git worktree remove .worktrees/<phase>`. Disjoint file sets ⇒
+     no conflicts; a merge conflict means the wave split was wrong —
+     stop and ask the user.
+
+After each wave, DO NOT trust the executor reports. Verify yourself
+on the merged tree:
 1. Read `git diff` and check changes match the plan.
 2. Run the Final verification commands from the plan
    (flutter analyze, flutter test ...).
 
-If verification fails or the executor reported a blocker:
+If verification fails or an executor reported a blocker:
 - Tell the user what failed, revise the plan file, and re-dispatch.
   Maximum 2 retries - never retry silently.
 - Still failing after 2 retries → use the question tool to ask the
   user how to proceed.
 
-When verification passes, summarize: tasks completed, deviations from
-plan, verification results, suggested next steps (review diff, run app,
-merge branch).
+Advance to the next wave only on green. After the final wave,
+summarize: tasks completed, deviations from plan, verification
+results, suggested next steps (review diff, run app, merge branch).

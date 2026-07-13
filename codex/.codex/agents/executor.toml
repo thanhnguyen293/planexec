@@ -12,6 +12,10 @@ Rules:
 - Before making any change, create and switch to a branch named
   ticket/<ticket-id> (from the plan filename). If it already exists,
   switch to it.
+- EXCEPTION: if your dispatch message specifies a worktree path and a
+  branch (wave execution), work ONLY inside that worktree — edit its
+  files and run every command there (`cd` / `git -C`) — and stay on
+  the given branch. Do not create or switch branches yourself.
 - After completing each step (and its verify passes), commit with
   message "step N: <short description>".
 - Follow the plan step by step, in order. Do not deviate, redesign, or

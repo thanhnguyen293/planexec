@@ -44,7 +44,8 @@ $FORCE && CP_FLAG="-f"
 copy_tree() { # $1=src_dir $2=dest_dir
   [ -d "$1" ] || return 0
   mkdir -p "$2"
-  cp -R $CP_FLAG "$1/." "$2/"
+  # BSD cp -n exits 1 when it skips existing files — that's not an error here
+  cp -R $CP_FLAG "$1/." "$2/" || [ "$CP_FLAG" = "-n" ]
 }
 
 merge_json() { # $1=dst $2=src
@@ -69,6 +70,44 @@ EOF
   else
     echo "  WARNING: jq/python3 not found — merge $src into $dst manually"
   fi
+}
+
+register_planner_guard() { # $1=settings.json path $2=hook command
+  local settings="$1" cmd="$2"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "  WARNING: python3 not found — register the planner-guard hook in $settings manually:"
+    echo "           PreToolUse (matcher Edit|Write|MultiEdit|NotebookEdit) + UserPromptSubmit -> $cmd"
+    return 0
+  fi
+  python3 - "$settings" "$cmd" <<'EOF'
+import json, os, sys
+path, cmd = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except FileNotFoundError:
+    data = {}
+except Exception as e:
+    print(f"  WARNING: could not parse {path} ({e}) — register the planner-guard hook manually")
+    sys.exit(0)
+hooks = data.setdefault("hooks", {})
+def ensure(event, matcher):
+    entries = hooks.setdefault(event, [])
+    for e in entries:
+        for h in e.get("hooks", []):
+            if "planner-guard" in h.get("command", ""):
+                return False
+    entry = {"matcher": matcher} if matcher else {}
+    entry["hooks"] = [{"type": "command", "command": cmd}]
+    entries.append(entry)
+    return True
+added = ensure("PreToolUse", "Edit|Write|MultiEdit|NotebookEdit")
+added = ensure("UserPromptSubmit", None) or added
+with open(path, "w") as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+print(f"  hook    {'registered in' if added else 'already present in'} {path}")
+EOF
 }
 
 if [ "$TARGET" = "all" ]; then
@@ -99,7 +138,15 @@ case "$TARGET" in
     copy_tree "$SRC/claude-code/.claude/agents"   "$DEST/agents"
     copy_tree "$SRC/claude-code/.claude/commands" "$DEST/commands"
     copy_tree "$SRC/claude-code/.claude/skills"   "$DEST/skills"
-    echo "Done. Open claude and type /planner <content>. Executor uses haiku (change in agents/executor.md if needed)."
+    copy_tree "$SRC/claude-code/.claude/hooks"    "$DEST/hooks"
+    # planner-guard: hard-enforces "supervisor never edits code" during /planner
+    if $GLOBAL; then
+      HOOK_CMD="node \"$DEST/hooks/planner-guard.cjs\""
+    else
+      HOOK_CMD="node \"\$CLAUDE_PROJECT_DIR/.claude/hooks/planner-guard.cjs\""
+    fi
+    register_planner_guard "$DEST/settings.json" "$HOOK_CMD"
+    echo "Done. Open claude and type /planner <content> (turn the guard off with /planner-off). Executor uses haiku (change in agents/executor.md if needed)."
     ;;
   codex)
     if $GLOBAL; then DEST="$HOME/.codex"; else DEST="$(pwd)/.codex"; fi

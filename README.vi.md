@@ -11,23 +11,30 @@ Claude Code và Codex CLI (bản port).
 
 ```mermaid
 flowchart TD
-    A["/planner &lt;ticket&gt;"] --> B["Step 1 — Explore<br/>tối đa 3 explore subagent song song (model rẻ)"]
+    A["/planner &lt;ticket&gt;<br/>hoặc /auto &lt;ticket&gt;"] --> B["Step 1 — Explore<br/>tối đa 3 explore subagent song song (model rẻ)"]
     B --> C["Step 2 — Clarify<br/>hỏi gộp 1 lượt, ticket rõ thì bỏ qua"]
     C --> D["Step 3 — High-level plan<br/>Goal · Findings · Approach · Change Map"]
     D --> G1{"bạn duyệt:<br/>Execute / Modify / Cancel"}
     G1 -- Modify --> D
-    G1 -- Execute --> E["Step 4 — Detailed plan<br/>skill writing-plans + executor-plan<br/>→ docs/plans/&lt;id&gt;.md (≤400 dòng/phase)"]
+    G1 -- Execute --> E["Step 4 — Detailed plan<br/>skill writing-plans + executor-plan<br/>→ docs/plans/&lt;id&gt;.md (≤400 dòng/phase)<br/>các phase gom thành execution wave"]
     E --> G2{"bạn review file plan:<br/>Dispatch / Modify / Cancel"}
     G2 -- Modify --> E
     G2 -- Dispatch --> G3["hộp thoại allow<br/>(task: executor: ask)"]
-    G3 --> X["Executor — session sạch, model rẻ<br/>branch ticket/&lt;id&gt; · làm đúng theo plan<br/>verify + commit từng step · gặp blocker thì dừng"]
-    X --> V["Step 5 — Planner tự kiểm chứng<br/>đọc git diff · tự chạy final verification"]
+    G3 --> X["Executor(s) — session sạch, model rẻ<br/>mỗi phase 1 executor · chạy song song trong wave (git worktree riêng)<br/>branch ticket/&lt;id&gt;[-&lt;phase&gt;] · làm đúng theo plan<br/>verify + commit từng step · gặp blocker thì dừng"]
+    X --> V["Step 5 — Planner tự kiểm chứng từng wave<br/>merge branch các phase · đọc git diff · tự chạy final verification"]
     V -- "fail / blocker (tối đa 2 retry, không retry âm thầm)" --> E
     V -- pass --> Z["Tổng kết → bạn review diff, chạy app, merge"]
 ```
 
 Planner không bao giờ đụng code (chỉ ghi được `docs/plans/`); executor
 chạy trong session con sạch và chỉ làm theo file plan.
+Plan nhiều phase được gom thành **execution wave**: các phase trong cùng
+wave đụng vào tập file rời nhau, nên executor của chúng chạy song song
+trong các git worktree riêng (branch `ticket/<id>-<phase>`), rồi planner
+merge về `ticket/<id>` trước khi verify và sang wave kế tiếp.
+Dùng `/planner` khi muốn có các gate duyệt. Dùng `/auto` cho ticket nhỏ,
+rõ scope, rủi ro thấp, nơi agent tự chọn giả định bảo thủ và chạy end-to-end
+không chờ duyệt.
 
 ## Cấu hình hiện tại
 
@@ -35,7 +42,8 @@ chạy trong session con sạch và chỉ làm theo file plan.
 
 | Agent | Model | Config chính |
 |---|---|---|
-| planner (primary) | `opencode-go/deepseek-v4-pro` | `temperature: 0.1` · edit: deny trừ `docs/plans/*` · bash: whitelist read-only (`git log/diff/status`, `grep`) + `flutter analyze/test` · task: `explore` allow, `executor` ask · question allow |
+| planner (primary) | `opencode-go/deepseek-v4-pro` | `temperature: 0.1` · edit: deny trừ `docs/plans/*` · bash: whitelist read-only (`git log/diff/status`, `grep`) + `flutter analyze/test` + `git branch/switch/merge/worktree` (chạy wave) · allowlist đọc ngoài workspace cho `~/.pub-cache/hosted/pub.dev/*` · task: `explore` allow, `executor` ask · question allow |
+| auto (primary) | `opencode-go/deepseek-v4-pro` | Cùng pipeline với planner, nhưng không có gate duyệt: question deny · task `executor` allow · giả định bảo thủ được ghi vào plan/report |
 | executor (subagent) | `opencode-go/deepseek-v4-flash` | `temperature: 0` · `steps: 40` · `hidden: true` · edit/bash allow · webfetch deny |
 | explore (có sẵn) | `opencode-go/deepseek-v4-flash` | override trong `opencode.json` (bản chất read-only) |
 
@@ -43,16 +51,18 @@ chạy trong session con sạch và chỉ làm theo file plan.
 
 | Tool | Model executor | Ghi chú |
 |---|---|---|
-| Claude Code | `haiku` | Chỉ chọn được model Anthropic; planner = slash command `/planner` chạy ở main thread; gate bằng instruction + plan mode |
-| Codex CLI | `gpt-5.4-mini` | `model_reasoning_effort: low` · `sandbox_mode: workspace-write`; planner = custom prompt `/planner`; prompts cài vào `~/.codex/prompts` (global) |
+| Claude Code | `haiku` | Chỉ chọn được model Anthropic; planner = slash command `/planner` chạy ở main thread; gate cứng bằng hook `planner-guard` (PreToolUse chặn Edit/Write ngoài `docs/plans/`, tắt bằng `/planner-off`); checkpoint qua AskUserQuestion; phase trong wave chạy song song bằng subagent cách ly worktree |
+| Codex CLI | `gpt-5.4-mini` | `model_reasoning_effort: low` · `sandbox_mode: workspace-write`; planner = custom prompt `/planner`; prompts cài vào `~/.codex/prompts` (global); wave chạy song song bằng worktree khi môi trường hỗ trợ subagent đồng thời, không thì chạy tuần tự |
 
 ## Thành phần
 
 | File | Vai trò |
 |---|---|
 | `.opencode/agents/planner.md` | Primary agent — 5 step: Explore → Clarify → High-level plan → Detailed plan → Execute & verify |
+| `.opencode/agents/auto.md` | Primary agent tự động — cùng pipeline nhưng bỏ gate duyệt cho ticket nhỏ/rủi ro thấp |
 | `.opencode/agents/executor.md` | Subagent thực thi — đọc plan file, branch + commit per step, dừng khi gặp blocker |
 | `.opencode/commands/planner.md` | Entry point: `/planner <nội dung>` |
+| `.opencode/commands/auto.md` | Entry point: `/auto <nội dung>` |
 | `.opencode/skills/executor-plan/` | Rule format plan cho executor model rẻ: ≤400 dòng/phase, code viết sẵn, verify + expected output, near-miss files, escape hatches. Đa ngôn ngữ |
 | `opencode.json` | Override model rẻ cho subagent `explore` |
 | `claude-code/.claude/`, `codex/.codex/` | Bản port (xem bảng trên) |
@@ -88,6 +98,8 @@ git clone https://github.com/thanhnguyen293/planexec.git && cd planexec
 
 Script copy agents/commands/skills; riêng OpenCode merge thêm
 `opencode.json` (giữ nguyên config mcp/provider có sẵn của bạn). Riêng
+Claude Code được cài thêm hook `planner-guard` và tự đăng ký vào
+`settings.json` (giữ nguyên hooks có sẵn; bỏ qua nếu đã đăng ký). Riêng
 Codex custom prompts luôn được cài global vào `~/.codex/prompts`, kể cả
 khi agents/skills được cài vào project local.
 
@@ -95,18 +107,26 @@ khi agents/skills được cài vào project local.
 
 1. `opencode models` — đối chiếu và sửa `model:` trong `agents/*.md`
    (mặc định theo bảng trên).
-2. Project không dùng Flutter: thêm lệnh test của toolchain
+2. Để cập nhật OpenCode agents đã cài, chạy lại installer kèm `--force`
+   (ví dụ: `/path/to/repo/install.sh --target opencode --global --force`).
+   Lệnh này ghi đè agent files hiện có, nên hãy kiểm tra customizations cục
+   bộ trước; sau đó thoát và khởi động lại OpenCode vì config chỉ được nạp
+   khi khởi động.
+3. Project không dùng Flutter: thêm lệnh test của toolchain
    (`npm test*`, `pytest*`, `cargo test*`...) vào bash whitelist trong
    `agents/planner.md` để planner tự verify được ở Step 5.
-3. Cần skill `writing-plans` của superpowers cho bước Detailed plan
+4. Cần skill `writing-plans` của superpowers cho bước Detailed plan
    (OpenCode / Claude Code).
 
 ## Dùng
 
 ```
 /planner TICKET-123: mô tả issue...
+/auto TICKET-123: mô tả issue nhỏ, rủi ro thấp...
 ```
 
 Duyệt tại 3 điểm: high-level plan (Execute/Modify/Cancel) → file plan
 chi tiết trong `docs/plans/` (Dispatch/Modify/Cancel) → hộp thoại allow
 khi gọi executor.
+`/auto` bỏ qua các gate duyệt này; nếu ticket quá mơ hồ hoặc verify không
+pass thì nó vẫn dừng và report blocker.
