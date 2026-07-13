@@ -18,11 +18,11 @@ Rules:
 - Before making any change, create and switch to a branch named
   ticket/<ticket-id> (from the plan filename). If it already exists,
   switch to it.
-- After completing each step (and its verify passes), commit with
-  message "step N: <short description>".
+- After completing each task (and its verify passes), commit with
+  message "task N: <short description>".
 - Follow it step by step, in order. Do not deviate, redesign, or
   "improve" anything outside the plan.
-- Run each step's verify command before moving to the next step.
+- Run each task's verify command before moving to the next task.
 - If reality differs from the plan (file missing, code changed,
   verify fails twice), or an escape hatch in the plan fires, STOP and
   report the blocker. Do not improvise.
@@ -31,7 +31,7 @@ Rules:
 - Never reproduce secret values in code, commits, or reports.
 
 Report back concisely:
-- Steps completed / skipped
+- Tasks completed / skipped
 - Files changed
 - Verification results
 - Any blockers

@@ -3,6 +3,9 @@
   "agent": {
     "explore": {
       "model": "opencode-go/deepseek-v4-flash"
+    },
+    "general": {
+      "model": "opencode-go/deepseek-v4-flash"
     }
   }
 }

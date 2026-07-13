@@ -99,7 +99,11 @@ case "$TARGET" in
     copy_tree "$SRC/claude-code/.claude/agents"   "$DEST/agents"
     copy_tree "$SRC/claude-code/.claude/commands" "$DEST/commands"
     copy_tree "$SRC/claude-code/.claude/skills"   "$DEST/skills"
-    echo "Done. Open claude and type /planner <content>. Executor uses haiku (change in agents/executor.md if needed)."
+    echo "Done (Claude Code = native spec-kit flow)."
+    echo "  Prereqs: install spec-kit (/speckit.*) and the superpowers plugin"
+    echo "  (writing-plans + subagent-driven-development skills)."
+    echo "  Usage: run /speckit.constitution -> specify -> clarify -> plan -> tasks,"
+    echo "  then /planner <feature-number-or-slug> (empty = latest specs/*)."
     ;;
   codex)
     if $GLOBAL; then DEST="$HOME/.codex"; else DEST="$(pwd)/.codex"; fi

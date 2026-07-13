@@ -1,11 +1,14 @@
 ---
-description: Analyze and handle a ticket through the 5-step workflow
+description: (native spec-kit) Drive a spec-kit feature through detailed plan, SDD execution, and independent verification
 agent: planner
 ---
 
-Handle the following ticket using the strict 5-step process
-(Explore → Clarify → High-level plan → Detailed plan →
-Execute & verify), stopping for my approval at the required
-checkpoints:
+Take the spec-kit feature below through the workflow (Locate & load →
+Ground → Detailed plan → SDD execute → independent verify), stopping for
+my approval at the Dispatch gate. Requires spec-kit artifacts under
+`specs/<NNN>-<slug>/` (run `/speckit.constitution` → `specify` →
+`clarify` → `plan` → `tasks` first).
+
+Feature (spec-kit dir number/slug, or empty for latest):
 
 $ARGUMENTS

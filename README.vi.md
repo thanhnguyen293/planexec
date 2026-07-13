@@ -1,63 +1,101 @@
-# planexec — plan with a strong model, execute with a cheap one
+# planexec — spec-driven: plan bằng model mạnh, execute bằng model rẻ
 
 *[English](README.md)*
 
-Workflow xử lý ticket/issue: planner (model mạnh) phân tích → làm rõ →
-lên plan → executor (model rẻ) thực thi → planner tự kiểm chứng.
-Hỗ trợ 3 tool: [OpenCode](https://opencode.ai) (bản gốc, đầy đủ nhất),
-Claude Code và Codex CLI (bản port).
+Workflow xử lý ticket theo hướng spec-driven, ghép 3 tầng thành một
+pipeline: [**spec-kit**](https://github.com/github/spec-kit) đặc tả
+feature (spec → tasks); **planner** của planexec (model mạnh) biến tasks
+thành plan executor tự-chứa và điều phối cả run; skill
+**subagent-driven-development** (SDD) của superpowers thực thi (mỗi task
+một implementer mới + review từng task + fix-loop), rồi planner tự kiểm
+chứng độc lập. Hỗ trợ [OpenCode](https://opencode.ai), Claude Code,
+Codex CLI.
+
+## Ba tầng
+
+| Tầng | Chủ | Làm gì |
+|---|---|---|
+| **Upstream** — spec, clarify, tasks | spec-kit (`/speckit.*`) | Biến ý tưởng thành `specs/<NNN>/` (`spec.md`, `plan.md`, `tasks.md`) + `constitution.md` của dự án |
+| **Governance** — plan chi tiết, gate, verify | planexec `/planner` | Model mạnh; consume `tasks.md`, viết plan executor, 1 gate Dispatch, tự verify cuối. Không đụng code |
+| **Execution** — implement, review, fix | superpowers SDD | Implementer từng task (model rẻ) + review từng task (spec + quality) + fix-loop + review toàn nhánh |
+
+planexec sở hữu mọi thứ từ `tasks.md` trở đi. **Không** dùng
+`/speckit.implement` — SDD engine thay thế.
 
 ## Flow
 
 ```mermaid
 flowchart TD
-    A["/planner &lt;ticket&gt;"] --> B["Step 1 — Explore<br/>tối đa 3 explore subagent song song (model rẻ)"]
-    B --> C["Step 2 — Clarify<br/>hỏi gộp 1 lượt, ticket rõ thì bỏ qua"]
-    C --> D["Step 3 — High-level plan<br/>Goal · Findings · Approach · Change Map"]
-    D --> G1{"bạn duyệt:<br/>Execute / Modify / Cancel"}
-    G1 -- Modify --> D
-    G1 -- Execute --> E["Step 4 — Detailed plan<br/>skill writing-plans + executor-plan<br/>→ docs/plans/&lt;id&gt;.md (≤400 dòng/phase)"]
-    E --> G2{"bạn review file plan:<br/>Dispatch / Modify / Cancel"}
-    G2 -- Modify --> E
-    G2 -- Dispatch --> G3["hộp thoại allow<br/>(task: executor: ask)"]
-    G3 --> X["Executor — session sạch, model rẻ<br/>branch ticket/&lt;id&gt; · làm đúng theo plan<br/>verify + commit từng step · gặp blocker thì dừng"]
-    X --> V["Step 5 — Planner tự kiểm chứng<br/>đọc git diff · tự chạy final verification"]
-    V -- "fail / blocker (tối đa 2 retry, không retry âm thầm)" --> E
+    S["spec-kit (bạn chạy trước)<br/>/speckit.constitution → specify → clarify → plan → tasks"] --> SP["specs/&lt;NNN&gt;/ (spec.md, plan.md, tasks.md)<br/>.specify/memory/constitution.md"]
+    SP --> A["/planner &lt;NNN or slug&gt;"]
+    A --> B["Step A — Locate &amp; load<br/>đọc constitution + spec + plan + tasks<br/>(thiếu tasks.md → dừng, bảo chạy /speckit.* trước)"]
+    B --> C["Step B — Ground vs codebase<br/>explore nhẹ · chỉ dừng hỏi khi drift đáng kể"]
+    C --> D["Step C — Detailed plan<br/>skill writing-plans + executor-plan<br/>→ docs/plans/&lt;id&gt;.md · ## Task N + ## Global Constraints"]
+    D --> G{"bạn review file plan:<br/>Dispatch / Modify / Cancel"}
+    G -- Modify --> D
+    G -- Dispatch --> X["Step D — subagent-driven-development<br/>branch ticket/&lt;id&gt; · mỗi task: implementer (rẻ)<br/>→ review từng task (spec+quality) → fix-loop · ledger<br/>→ review toàn nhánh · DỪNG trước khi merge"]
+    X --> V["Step E — Planner tự kiểm chứng<br/>đọc git diff · tự chạy final verification"]
+    V -- "fail / blocker (tối đa 2 retry, không âm thầm)" --> D
     V -- pass --> Z["Tổng kết → bạn review diff, chạy app, merge"]
 ```
 
-Planner không bao giờ đụng code (chỉ ghi được `docs/plans/`); executor
-chạy trong session con sạch và chỉ làm theo file plan.
+Planner không bao giờ đụng code (chỉ ghi được `docs/plans/`); các
+subagent implementer/reviewer chạy trong session con sạch qua SDD, và
+nhánh được để nguyên chưa merge cho bạn review.
+
+## Yêu cầu trước
+
+- Cài **spec-kit** (cung cấp `/speckit.*` và `specs/`, `.specify/`). Chạy
+  chuỗi `/speckit.*` để tạo feature trước khi gọi `/planner`.
+- Cài plugin **superpowers** (cung cấp skill `writing-plans` và
+  `subagent-driven-development` + script SDD `task-brief` /
+  `review-package`).
+
+## Hợp đồng plan-file
+
+Plan chi tiết (`docs/plans/<id>.md`) là điểm bàn giao giữa planner và SDD
+engine nên cấu trúc cố định (xem skill `executor-plan`):
+
+- Section **`## Global Constraints`** ở đầu — yêu cầu ràng buộc + giá trị
+  chính xác + nguyên tắc `constitution.md` liên quan. SDD đưa nguyên văn
+  cho mỗi reviewer làm "attention lens".
+- Mỗi đơn vị thực thi là một heading **`## Task N`** — SDD `task-brief`
+  rút task theo heading này, nên phải là `Task N` (không phải `Step N`).
+  Mỗi task gồm: current state + code viết sẵn + exemplar convention +
+  lệnh verify + expected output.
+- Section **`## Final verification`** — lệnh toàn plan + expected output.
 
 ## Cấu hình hiện tại
 
-### OpenCode (bản gốc)
+### OpenCode
 
 | Agent | Model | Config chính |
 |---|---|---|
-| planner (primary) | `opencode-go/deepseek-v4-pro` | `temperature: 0.1` · edit: deny trừ `docs/plans/*` · bash: whitelist read-only (`git log/diff/status`, `grep`) + `flutter analyze/test` · task: `explore` allow, `executor` ask · question allow |
-| executor (subagent) | `opencode-go/deepseek-v4-flash` | `temperature: 0` · `steps: 40` · `hidden: true` · edit/bash allow · webfetch deny |
-| explore (có sẵn) | `opencode-go/deepseek-v4-flash` | override trong `opencode.json` (bản chất read-only) |
+| planner (primary) | `opencode-go/deepseek-v4-pro` | `temperature: 0.1` · edit: deny trừ `docs/plans/*` · bash: whitelist read-only + `flutter analyze/test` + script SDD + `git switch/branch` (tạo `ticket/*`) · task: `explore`/`general` allow, `executor` ask · question allow |
+| general (implementer/reviewer SDD) | `opencode-go/deepseek-v4-flash` | override trong `opencode.json`; SDD dispatch qua `task` `subagent_type: "general"` |
+| executor (subagent) | `opencode-go/deepseek-v4-flash` | đường cũ — giữ làm fallback; bị bypass khi SDD điều khiển |
+| explore (có sẵn) | `opencode-go/deepseek-v4-flash` | override trong `opencode.json` |
 
 ### Bản port
 
-| Tool | Model executor | Ghi chú |
-|---|---|---|
-| Claude Code | `haiku` | Chỉ chọn được model Anthropic; planner = slash command `/planner` chạy ở main thread; gate bằng instruction + plan mode |
-| Codex CLI | `gpt-5.4-mini` | `model_reasoning_effort: low` · `sandbox_mode: workspace-write`; planner = custom prompt `/planner`; prompts cài vào `~/.codex/prompts` (global) |
+| Tool | Ghi chú |
+|---|---|
+| Claude Code | planner = slash command `/planner` ở main thread; SDD dispatch subagent `general-purpose`; executor `haiku` giữ làm fallback |
+| Codex CLI | planner = custom prompt `/planner` (cài vào `~/.codex/prompts`). **SDD dispatch subagent cần bật multi-agent**; nếu không, degrade về: `executor` (`gpt-5.4-mini`) từng task + planner review inline từng task (read-only) — giữ per-task gating, mất isolation reviewer |
 
 ## Thành phần
 
 | File | Vai trò |
 |---|---|
-| `.opencode/agents/planner.md` | Primary agent — 5 step: Explore → Clarify → High-level plan → Detailed plan → Execute & verify |
-| `.opencode/agents/executor.md` | Subagent thực thi — đọc plan file, branch + commit per step, dừng khi gặp blocker |
-| `.opencode/commands/planner.md` | Entry point: `/planner <nội dung>` |
-| `.opencode/skills/executor-plan/` | Rule format plan cho executor model rẻ: ≤400 dòng/phase, code viết sẵn, verify + expected output, near-miss files, escape hatches. Đa ngôn ngữ |
-| `opencode.json` | Override model rẻ cho subagent `explore` |
+| `.opencode/agents/planner.md` | Primary agent — Step A–E: Locate & load → Ground → Detailed plan → SDD execute → tự verify |
+| `.opencode/agents/executor.md` | Subagent thực thi cũ (fallback; SDD dùng implementer riêng) |
+| `.opencode/commands/planner.md` | Entry point: `/planner <NNN\|slug>` |
+| `.opencode/skills/executor-plan/` | Format plan cho executor model rẻ: `## Task N` + `## Global Constraints`, ≤400 dòng/phase, code viết sẵn, verify + expected output, near-miss files, escape hatches. Đa ngôn ngữ |
+| `opencode.json` | Override model rẻ cho subagent `explore` và `general` |
 | `claude-code/.claude/`, `codex/.codex/` | Bản port (xem bảng trên) |
+| `docs/design/spec-kit-sdd-integration.md` | Thiết kế tích hợp + ghi chú verify |
 
-Skill `executor-plan` dùng chung nguyên văn cho cả 3 (cùng chuẩn SKILL.md).
+Skill `executor-plan` dùng chung nguyên văn cho cả 3 tool.
 
 ## Cài đặt
 
@@ -87,26 +125,33 @@ git clone https://github.com/thanhnguyen293/planexec.git && cd planexec
 ```
 
 Script copy agents/commands/skills; riêng OpenCode merge thêm
-`opencode.json` (giữ nguyên config mcp/provider có sẵn của bạn). Riêng
-Codex custom prompts luôn được cài global vào `~/.codex/prompts`, kể cả
-khi agents/skills được cài vào project local.
+`opencode.json` (giữ nguyên config mcp/provider có sẵn). Codex custom
+prompts luôn cài global vào `~/.codex/prompts`. Script **không** cài
+spec-kit hay superpowers — cài riêng (xem "Yêu cầu trước").
 
 ## Sau khi cài
 
-1. `opencode models` — đối chiếu và sửa `model:` trong `agents/*.md`
-   (mặc định theo bảng trên).
-2. Project không dùng Flutter: thêm lệnh test của toolchain
+1. Cài prerequisite (spec-kit + superpowers).
+2. `opencode models` — đối chiếu và sửa `model:` trong `agents/*.md`.
+3. Project không dùng Flutter: thêm lệnh test của toolchain
    (`npm test*`, `pytest*`, `cargo test*`...) vào bash whitelist trong
-   `agents/planner.md` để planner tự verify được ở Step 5.
-3. Cần skill `writing-plans` của superpowers cho bước Detailed plan
-   (OpenCode / Claude Code).
+   `agents/planner.md` để planner tự verify được ở Step E.
 
 ## Dùng
 
-```
-/planner TICKET-123: mô tả issue...
+```bash
+# 1) spec-kit — đặc tả feature (mỗi feature một lần)
+/speckit.constitution   # mỗi project một lần
+/speckit.specify ...     # → specs/<NNN>-<slug>/spec.md
+/speckit.clarify
+/speckit.plan
+/speckit.tasks           # → specs/<NNN>-<slug>/tasks.md
+
+# 2) planexec — plan, execute, verify
+/planner 001             # số/slug, hoặc để trống = specs/* mới nhất
 ```
 
-Duyệt tại 3 điểm: high-level plan (Execute/Modify/Cancel) → file plan
-chi tiết trong `docs/plans/` (Dispatch/Modify/Cancel) → hộp thoại allow
-khi gọi executor.
+Một điểm duyệt duy nhất: bạn review file plan chi tiết trong
+`docs/plans/` (**Dispatch / Modify / Cancel**). Khi Dispatch, SDD chạy
+các task; planner tự verify rồi để nguyên nhánh cho bạn review, chạy app,
+và merge.
