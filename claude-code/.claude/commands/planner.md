@@ -75,15 +75,23 @@ checked out (waves/worktrees branch off it).
 
 - Single-phase wave: dispatch the executor with ONLY that phase file
   path (no isolation needed).
-- Multi-phase wave: dispatch ALL its phases in ONE message (multiple
-  Agent calls → concurrent), each with `isolation: "worktree"` so they
-  edit isolated copies and never clobber each other. Give each executor
-  ONLY its own phase file path, and tell it to commit its work on a new
-  branch `ticket/<id>-<phase>`. Worktrees share the repo's refs, so when
-  the whole wave returns, merge each `ticket/<id>-<phase>` into
-  `ticket/<id>` from the main tree (Bash `git merge` — not gated by the
-  guard). Disjoint file sets ⇒ no conflicts; a merge conflict means the
-  wave split was wrong — stop and tell me.
+- Multi-phase wave: isolate each phase in its own worktree FIRST, with
+  explicit Bash commands — do NOT use the Agent `isolation: "worktree"`
+  option (it forks from the main tree's current HEAD, not `ticket/<id>`,
+  and gives the branch an auto-generated name, which breaks the
+  merge-by-branch-name step below). For each phase:
+  1. `git worktree add .worktrees/<phase> -b ticket/<id>-<phase> ticket/<id>`
+     — this forks the branch off `ticket/<id>` with a deterministic name.
+  2. Dispatch ALL the wave's phases in ONE message (multiple Agent calls
+     → concurrent), giving each executor ONLY its own phase file path,
+     its worktree path (`.worktrees/<phase>/`) and its branch
+     (`ticket/<id>-<phase>`), and telling it to work ONLY inside that
+     worktree and stay on that branch (do not create/switch branches).
+  When the whole wave returns, from the main tree merge each
+  `ticket/<id>-<phase>` into `ticket/<id>` (Bash `git merge` — not gated
+  by the guard), then `git worktree remove .worktrees/<phase>`. Disjoint
+  file sets ⇒ no conflicts; a merge conflict means the wave split was
+  wrong — stop and tell me.
 
 After each wave: do NOT trust executor reports - read git diff against
 the plan and run the Final verification commands yourself on the merged
