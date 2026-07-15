@@ -11,7 +11,7 @@ Claude Code và Codex CLI (bản port).
 
 ```mermaid
 flowchart TD
-    A["/planner &lt;ticket&gt;<br/>hoặc /auto &lt;ticket&gt;"] --> B["Step 1 — Explore<br/>tối đa 3 explore subagent song song (model rẻ)"]
+    A["/planner &lt;ticket&gt;"] --> B["Step 1 — Explore<br/>tối đa 3 explore subagent song song"]
     B --> C["Step 2 — Clarify<br/>hỏi gộp 1 lượt, ticket rõ thì bỏ qua"]
     C --> D["Step 3 — High-level plan<br/>Goal · Findings · Approach · Change Map"]
     D --> G1{"bạn duyệt:<br/>Execute / Modify / Cancel"}
@@ -32,9 +32,6 @@ Plan nhiều phase được gom thành **execution wave**: các phase trong cùn
 wave đụng vào tập file rời nhau, nên executor của chúng chạy song song
 trong các git worktree riêng (branch `ticket/<id>-<phase>`), rồi planner
 merge về `ticket/<id>` trước khi verify và sang wave kế tiếp.
-Dùng `/planner` khi muốn có các gate duyệt. Dùng `/auto` cho ticket nhỏ,
-rõ scope, rủi ro thấp, nơi agent tự chọn giả định bảo thủ và chạy end-to-end
-không chờ duyệt.
 
 ## Cấu hình hiện tại
 
@@ -42,10 +39,9 @@ không chờ duyệt.
 
 | Agent | Model | Config chính |
 |---|---|---|
-| planner (primary) | `opencode-go/deepseek-v4-pro` | `temperature: 0.1` · edit: deny trừ `docs/plans/*` · bash: whitelist read-only (`git log/diff/status`, `grep`) + `flutter analyze/test` + `git branch/switch/merge/worktree` (chạy wave) · allowlist đọc ngoài workspace cho `~/.pub-cache/hosted/pub.dev/*` · task: `explore` allow, `executor` ask · question allow |
-| auto (primary) | `opencode-go/deepseek-v4-pro` | Cùng pipeline với planner, nhưng không có gate duyệt: question deny · task `executor` allow · giả định bảo thủ được ghi vào plan/report |
+| planner (primary) | `openai/gpt-5.6-sol` | `temperature: 0.1` · edit: deny trừ `docs/plans/*` · bash: whitelist read-only (`git log/diff/status`, `grep`) + `flutter analyze/test` + `git branch/switch/merge/worktree` (chạy wave) · allowlist đọc ngoài workspace cho `~/.pub-cache/hosted/pub.dev/*` · task: `explore` allow, `executor` ask · question allow |
 | executor (subagent) | `opencode-go/deepseek-v4-flash` | `temperature: 0` · `steps: 40` · `hidden: true` · edit/bash allow · webfetch deny |
-| explore (có sẵn) | `opencode-go/deepseek-v4-flash` | override trong `opencode.json` (bản chất read-only) |
+| explore (có sẵn) | `opencode-go/deepseek-v4-pro` | override trong `opencode.json` (bản chất read-only) |
 
 ### Bản port
 
@@ -59,12 +55,10 @@ không chờ duyệt.
 | File | Vai trò |
 |---|---|
 | `.opencode/agents/planner.md` | Primary agent — 5 step: Explore → Clarify → High-level plan → Detailed plan → Execute & verify |
-| `.opencode/agents/auto.md` | Primary agent tự động — cùng pipeline nhưng bỏ gate duyệt cho ticket nhỏ/rủi ro thấp |
 | `.opencode/agents/executor.md` | Subagent thực thi — đọc plan file, branch + commit per step, dừng khi gặp blocker |
 | `.opencode/commands/planner.md` | Entry point: `/planner <nội dung>` |
-| `.opencode/commands/auto.md` | Entry point: `/auto <nội dung>` |
 | `.opencode/skills/executor-plan/` | Rule format plan cho executor model rẻ: ≤400 dòng/phase, code viết sẵn, verify + expected output, near-miss files, escape hatches. Đa ngôn ngữ |
-| `opencode.json` | Override model rẻ cho subagent `explore` |
+| `opencode.json` | Override model cho subagent `explore` (fan-out read-only) |
 | `claude-code/.claude/`, `codex/.codex/` | Bản port (xem bảng trên) |
 
 Skill `executor-plan` dùng chung nguyên văn cho cả 3 (cùng chuẩn SKILL.md).
@@ -122,11 +116,8 @@ khi agents/skills được cài vào project local.
 
 ```
 /planner TICKET-123: mô tả issue...
-/auto TICKET-123: mô tả issue nhỏ, rủi ro thấp...
 ```
 
 Duyệt tại 3 điểm: high-level plan (Execute/Modify/Cancel) → file plan
 chi tiết trong `docs/plans/` (Dispatch/Modify/Cancel) → hộp thoại allow
 khi gọi executor.
-`/auto` bỏ qua các gate duyệt này; nếu ticket quá mơ hồ hoặc verify không
-pass thì nó vẫn dừng và report blocker.

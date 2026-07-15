@@ -12,7 +12,7 @@ Claude Code, and Codex CLI (ports).
 
 ```mermaid
 flowchart TD
-    A["/planner &lt;ticket&gt;<br/>or /auto &lt;ticket&gt;"] --> B["Step 1 — Explore<br/>up to 3 parallel explore subagents (cheap model)"]
+    A["/planner &lt;ticket&gt;"] --> B["Step 1 — Explore<br/>up to 3 parallel explore subagents"]
     B --> C["Step 2 — Clarify<br/>batched questions, skip if unambiguous"]
     C --> D["Step 3 — High-level plan<br/>Goal · Findings · Approach · Change Map"]
     D --> G1{"you approve:<br/>Execute / Modify / Cancel"}
@@ -34,9 +34,6 @@ wave touch disjoint file sets, so their executors run in parallel in
 isolated git worktrees (branch `ticket/<id>-<phase>`), and the planner
 merges them back into `ticket/<id>` before verifying and starting the
 next wave.
-Use `/planner` when you want approval gates. Use `/auto` for small,
-well-scoped, low-risk tickets where the agent should make conservative
-assumptions and run end-to-end without approval gates.
 
 ## Current configuration
 
@@ -44,10 +41,9 @@ assumptions and run end-to-end without approval gates.
 
 | Agent | Model | Key config |
 |---|---|---|
-| planner (primary) | `opencode-go/deepseek-v4-pro` | `temperature: 0.1` · edit: deny except `docs/plans/*` · bash: read-only whitelist (`git log/diff/status`, `grep`) + `flutter analyze/test` + `git branch/switch/merge/worktree` (wave execution) · external read allowlist for `~/.pub-cache/hosted/pub.dev/*` · task: `explore` allow, `executor` ask · question allow |
-| auto (primary) | `opencode-go/deepseek-v4-pro` | Same pipeline as planner, but no approval gates: question deny · task `executor` allow · conservative assumptions documented in the plan/report |
+| planner (primary) | `openai/gpt-5.6-sol` | `temperature: 0.1` · edit: deny except `docs/plans/*` · bash: read-only whitelist (`git log/diff/status`, `grep`) + `flutter analyze/test` + `git branch/switch/merge/worktree` (wave execution) · external read allowlist for `~/.pub-cache/hosted/pub.dev/*` · task: `explore` allow, `executor` ask · question allow |
 | executor (subagent) | `opencode-go/deepseek-v4-flash` | `temperature: 0` · `steps: 40` · `hidden: true` · edit/bash allow · webfetch deny |
-| explore (built-in) | `opencode-go/deepseek-v4-flash` | overridden in `opencode.json` (read-only by design) |
+| explore (built-in) | `opencode-go/deepseek-v4-pro` | overridden in `opencode.json` (read-only by design) |
 
 ### Ports
 
@@ -61,12 +57,10 @@ assumptions and run end-to-end without approval gates.
 | File | Role |
 |---|---|
 | `.opencode/agents/planner.md` | Primary agent — 5 steps: Explore → Clarify → High-level plan → Detailed plan → Execute & verify |
-| `.opencode/agents/auto.md` | Autonomous primary agent — same pipeline without approval gates for small low-risk tickets |
 | `.opencode/agents/executor.md` | Execution subagent — reads the plan file, branch + commit per step, stops on blockers |
 | `.opencode/commands/planner.md` | Entry point: `/planner <content>` |
-| `.opencode/commands/auto.md` | Entry point: `/auto <content>` |
 | `.opencode/skills/executor-plan/` | Plan format rules for a cheap-model executor: ≤400 lines/phase, pre-written code, verify + expected output, near-miss files, escape hatches. Language-agnostic |
-| `opencode.json` | Cheap-model override for the `explore` subagent |
+| `opencode.json` | Model override for the `explore` subagent (read-only fan-out) |
 | `claude-code/.claude/`, `codex/.codex/` | Ports (see tables above) |
 
 The `executor-plan` skill is shared verbatim across all three (same
@@ -126,11 +120,8 @@ project.
 
 ```
 /planner TICKET-123: issue description...
-/auto TICKET-123: small low-risk issue description...
 ```
 
 Approve at 3 checkpoints: high-level plan (Execute/Modify/Cancel) →
 detailed plan file in `docs/plans/` (Dispatch/Modify/Cancel) → the
 allow dialog when the executor is dispatched.
-`/auto` skips those workflow approval gates; it still stops and reports
-when the ticket is too ambiguous or verification cannot be made green.
