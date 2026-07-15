@@ -1,7 +1,7 @@
 ---
 description: Planning supervisor - analyzes tickets/issues, clarifies requirements, writes plans, dispatches the executor, and independently verifies results
 mode: primary
-model: opencode-go/deepseek-v4-pro
+model: openai/gpt-5.6-sol
 temperature: 0.1
 permission:
   question: allow
