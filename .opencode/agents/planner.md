@@ -11,7 +11,18 @@ permission:
     "*": deny
     "docs/plans/*": allow
   bash:
-    "*": deny
+    # anything not covered below prompts for confirmation instead of
+    # failing outright - but the irreversible ops right below are
+    # always denied, even if a confirmation prompt would otherwise fire.
+    "*": ask
+    # never allow, not even via the ask prompt - destructive / irreversible
+    "rm -rf*": deny
+    "rm -fr*": deny
+    "git push*--force*": deny
+    "git push*-f*": deny
+    "git reset --hard*": deny
+    "git clean*": deny
+    "git checkout -- *": deny
     # git — read-only inspection
     "git log*": allow
     "git diff*": allow
