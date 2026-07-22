@@ -110,6 +110,39 @@ print(f"  hook    {'registered in' if added else 'already present in'} {path}")
 EOF
 }
 
+allow_executor_agent() { # $1=settings.json path
+  # Auto-allow dispatching the executor subagent so no permission "allow
+  # dialog" interrupts step 5 (the Dispatch AskUserQuestion checkpoint already
+  # gates it). Idempotent.
+  local settings="$1"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "  WARNING: python3 not found — add \"Agent(executor)\" to permissions.allow in $settings manually"
+    return 0
+  fi
+  python3 - "$settings" <<'EOF'
+import json, sys
+path = sys.argv[1]
+rule = "Agent(executor)"
+try:
+    with open(path) as f:
+        data = json.load(f)
+except FileNotFoundError:
+    data = {}
+except Exception as e:
+    print(f"  WARNING: could not parse {path} ({e}) — add \"{rule}\" to permissions.allow manually")
+    sys.exit(0)
+allow = data.setdefault("permissions", {}).setdefault("allow", [])
+if rule in allow:
+    print(f"  perm    already present in {path}: {rule}")
+else:
+    allow.append(rule)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print(f"  perm    added to {path}: {rule}")
+EOF
+}
+
 if [ "$TARGET" = "all" ]; then
   # "all" always installs globally
   FLAGS="--global"
@@ -146,6 +179,8 @@ case "$TARGET" in
       HOOK_CMD="node \"\$CLAUDE_PROJECT_DIR/.claude/hooks/planner-guard.cjs\""
     fi
     register_planner_guard "$DEST/settings.json" "$HOOK_CMD"
+    # Auto-allow the executor subagent (no permission "allow dialog" in step 5)
+    allow_executor_agent "$DEST/settings.json"
     echo "Done. Open claude and type /planner <content> (turn the guard off with /planner-off). Executor uses haiku (change in agents/executor.md if needed)."
     ;;
   codex)

@@ -32,7 +32,7 @@ permission:
     # git — branch/worktree plumbing for wave execution (step 5 only)
     "git branch*": allow
     "git switch*": allow
-    "git merge*": allow
+    "git cherry-pick*": allow
     "git worktree*": allow
     # file inspection
     "ls*": allow
@@ -52,7 +52,7 @@ permission:
   task:
     "*": deny
     "explore": allow
-    "executor": ask
+    "executor": allow
 ---
 
 You are a planning supervisor. You understand the request, clarify it,
@@ -166,14 +166,17 @@ and is checked out (waves/worktrees branch off it).
      path (`.worktrees/<phase>/`) and its branch
      (`ticket/<id>-<phase>`) — it must work and commit only inside
      that worktree.
-  3. When the whole wave returns, merge each `ticket/<id>-<phase>`
-     into `ticket/<id>` from the main tree (`git merge`), then
-     `git worktree remove .worktrees/<phase>`. Disjoint file sets ⇒
-     no conflicts; a merge conflict means the wave split was wrong —
-     stop and ask the user.
+  3. When the whole wave returns, cherry-pick each phase's commits
+     onto `ticket/<id>` from the main tree, one phase at a time
+     (`git cherry-pick ticket/<id>..ticket/<id>-<phase>` — the range
+     replays only that phase's own commits, correct even after earlier
+     phases were picked), then `git worktree remove .worktrees/<phase>`
+     and `git branch -D ticket/<id>-<phase>`. Disjoint file sets ⇒
+     no conflicts; a cherry-pick conflict means the wave split was
+     wrong — run `git cherry-pick --abort` and ask the user.
 
 After each wave, DO NOT trust the executor reports. Verify yourself
-on the merged tree:
+on `ticket/<id>` after integration:
 1. Read `git diff` and check changes match the plan.
 2. Run the Final verification commands from the plan
    (flutter analyze, flutter test ...).

@@ -19,9 +19,8 @@ flowchart TD
     G1 -- Execute --> E["Step 4 — Detailed plan<br/>skill writing-plans + executor-plan<br/>→ docs/plans/&lt;id&gt;.md (≤400 dòng/phase)<br/>các phase gom thành execution wave"]
     E --> G2{"bạn review file plan:<br/>Dispatch / Modify / Cancel"}
     G2 -- Modify --> E
-    G2 -- Dispatch --> G3["hộp thoại allow<br/>(task: executor: ask)"]
-    G3 --> X["Executor(s) — session sạch, model rẻ<br/>mỗi phase 1 executor · chạy song song trong wave (git worktree riêng)<br/>branch ticket/&lt;id&gt;[-&lt;phase&gt;] · làm đúng theo plan<br/>verify + commit từng step · gặp blocker thì dừng"]
-    X --> V["Step 5 — Planner tự kiểm chứng từng wave<br/>merge branch các phase · đọc git diff · tự chạy final verification"]
+    G2 -- Dispatch --> X["Executor(s) — session sạch, model rẻ<br/>mỗi phase 1 executor · chạy song song trong wave (git worktree riêng)<br/>branch ticket/&lt;id&gt;[-&lt;phase&gt;] · làm đúng theo plan<br/>verify + commit từng step · gặp blocker thì dừng"]
+    X --> V["Step 5 — Planner tự kiểm chứng từng wave<br/>cherry-pick branch các phase lên ticket/&lt;id&gt; · đọc git diff · tự chạy final verification"]
     V -- "fail / blocker (tối đa 2 retry, không retry âm thầm)" --> E
     V -- pass --> Z["Tổng kết → bạn review diff, chạy app, merge"]
 ```
@@ -31,7 +30,7 @@ chạy trong session con sạch và chỉ làm theo file plan.
 Plan nhiều phase được gom thành **execution wave**: các phase trong cùng
 wave đụng vào tập file rời nhau, nên executor của chúng chạy song song
 trong các git worktree riêng (branch `ticket/<id>-<phase>`), rồi planner
-merge về `ticket/<id>` trước khi verify và sang wave kế tiếp.
+cherry-pick về `ticket/<id>` trước khi verify và sang wave kế tiếp.
 
 ## Cấu hình hiện tại
 
@@ -39,7 +38,7 @@ merge về `ticket/<id>` trước khi verify và sang wave kế tiếp.
 
 | Agent | Model | Config chính |
 |---|---|---|
-| planner (primary) | `openai/gpt-5.6-sol` | `temperature: 0.1` · edit: deny trừ `docs/plans/*` · bash: whitelist read-only (`git log/diff/status`, `grep`) + `flutter analyze/test` + `git branch/switch/merge/worktree` (chạy wave) · allowlist đọc ngoài workspace cho `~/.pub-cache/hosted/pub.dev/*` · task: `explore` allow, `executor` ask · question allow |
+| planner (primary) | `openai/gpt-5.6-sol` | `temperature: 0.1` · edit: deny trừ `docs/plans/*` · bash: whitelist read-only (`git log/diff/status`, `grep`) + `flutter analyze/test` + `git branch/switch/cherry-pick/worktree` (chạy wave) · allowlist đọc ngoài workspace cho `~/.pub-cache/hosted/pub.dev/*` · task: `explore` allow, `executor` allow · question allow |
 | executor (subagent) | `opencode-go/deepseek-v4-flash` | `temperature: 0` · `steps: 40` · `hidden: true` · edit/bash allow · webfetch deny |
 | explore (có sẵn) | `opencode-go/deepseek-v4-pro` | override trong `opencode.json` (bản chất read-only) |
 
@@ -47,8 +46,8 @@ merge về `ticket/<id>` trước khi verify và sang wave kế tiếp.
 
 | Tool | Model executor | Ghi chú |
 |---|---|---|
-| Claude Code | `haiku` | Chỉ chọn được model Anthropic; planner = slash command `/planner` chạy ở main thread; gate cứng bằng hook `planner-guard` (PreToolUse chặn Edit/Write ngoài `docs/plans/`, tắt bằng `/planner-off`); checkpoint qua AskUserQuestion; phase trong wave chạy song song bằng subagent cách ly worktree |
-| Codex CLI | `gpt-5.4-mini` | `model_reasoning_effort: low` · `sandbox_mode: workspace-write`; planner = custom prompt `/planner`; prompts cài vào `~/.codex/prompts` (global); wave chạy song song bằng worktree khi môi trường hỗ trợ subagent đồng thời, không thì chạy tuần tự |
+| Claude Code | `haiku` | Chỉ chọn được model Anthropic; planner = slash command `/planner` chạy ở main thread; gate cứng bằng hook `planner-guard` (PreToolUse chặn Edit/Write ngoài `docs/plans/`, tắt bằng `/planner-off`); checkpoint qua AskUserQuestion; executor được tự allow (`permissions.allow: ["Agent(executor)"]`) nên khi dispatch không có hộp thoại allow riêng; phase trong wave chạy song song bằng subagent cách ly worktree, gộp về `ticket/<id>` bằng `git cherry-pick ticket/<id>..ticket/<id>-<phase>` (không merge) |
+| Codex CLI | `gpt-5.4-mini` | `model_reasoning_effort: low` · `sandbox_mode: workspace-write`; planner = custom prompt `/planner`; prompts cài vào `~/.codex/prompts` (global); dispatch executor theo `approval_policy` global của Codex (planexec không đặt gate riêng cho executor); wave chạy song song bằng worktree khi môi trường hỗ trợ subagent đồng thời (không thì tuần tự), phase gộp về `ticket/<id>` bằng cherry-pick (không merge) |
 
 ## Thành phần
 
@@ -93,9 +92,11 @@ git clone https://github.com/thanhnguyen293/planexec.git && cd planexec
 Script copy agents/commands/skills; riêng OpenCode merge thêm
 `opencode.json` (giữ nguyên config mcp/provider có sẵn của bạn). Riêng
 Claude Code được cài thêm hook `planner-guard` và tự đăng ký vào
-`settings.json` (giữ nguyên hooks có sẵn; bỏ qua nếu đã đăng ký). Riêng
-Codex custom prompts luôn được cài global vào `~/.codex/prompts`, kể cả
-khi agents/skills được cài vào project local.
+`settings.json` (giữ nguyên hooks có sẵn; bỏ qua nếu đã đăng ký), đồng
+thời thêm `Agent(executor)` vào `permissions.allow` để lúc dispatch
+executor ở step 5 không còn hộp thoại xin phép. Riêng Codex custom
+prompts luôn được cài global vào `~/.codex/prompts`, kể cả khi
+agents/skills được cài vào project local.
 
 ## Sau khi cài
 
@@ -118,6 +119,9 @@ khi agents/skills được cài vào project local.
 /planner TICKET-123: mô tả issue...
 ```
 
-Duyệt tại 3 điểm: high-level plan (Execute/Modify/Cancel) → file plan
-chi tiết trong `docs/plans/` (Dispatch/Modify/Cancel) → hộp thoại allow
-khi gọi executor.
+Duyệt tại 2 điểm: high-level plan (Execute/Modify/Cancel) → file plan
+chi tiết trong `docs/plans/` (Dispatch/Modify/Cancel). Sau khi bấm
+Dispatch, executor chạy ngay — planexec không thêm hộp thoại allow riêng
+(OpenCode `task: executor allow`; Claude Code
+`permissions.allow: ["Agent(executor)"]`; Codex theo `approval_policy`
+của chính nó).

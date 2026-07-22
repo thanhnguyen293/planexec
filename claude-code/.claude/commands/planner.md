@@ -79,7 +79,7 @@ checked out (waves/worktrees branch off it).
   explicit Bash commands — do NOT use the Agent `isolation: "worktree"`
   option (it forks from the main tree's current HEAD, not `ticket/<id>`,
   and gives the branch an auto-generated name, which breaks the
-  merge-by-branch-name step below). For each phase:
+  cherry-pick-by-branch-name step below). For each phase:
   1. `git worktree add .worktrees/<phase> -b ticket/<id>-<phase> ticket/<id>`
      — this forks the branch off `ticket/<id>` with a deterministic name.
   2. Dispatch ALL the wave's phases in ONE message (multiple Agent calls
@@ -87,15 +87,19 @@ checked out (waves/worktrees branch off it).
      its worktree path (`.worktrees/<phase>/`) and its branch
      (`ticket/<id>-<phase>`), and telling it to work ONLY inside that
      worktree and stay on that branch (do not create/switch branches).
-  When the whole wave returns, from the main tree merge each
-  `ticket/<id>-<phase>` into `ticket/<id>` (Bash `git merge` — not gated
-  by the guard), then `git worktree remove .worktrees/<phase>`. Disjoint
-  file sets ⇒ no conflicts; a merge conflict means the wave split was
-  wrong — stop and tell me.
+  When the whole wave returns, from the main tree cherry-pick each
+  phase's commits onto `ticket/<id>`, one phase at a time:
+  `git cherry-pick ticket/<id>..ticket/<id>-<phase>` (Bash — not gated by
+  the guard; the range replays only that phase's own commits, and stays
+  correct even after earlier phases in the wave were already picked).
+  Then clean up: `git worktree remove .worktrees/<phase>` followed by
+  `git branch -D ticket/<id>-<phase>`. Disjoint file sets ⇒ no conflicts;
+  a cherry-pick conflict means the wave split was wrong — run
+  `git cherry-pick --abort` and tell me.
 
 After each wave: do NOT trust executor reports - read git diff against
-the plan and run the Final verification commands yourself on the merged
-tree. On failure or blocker → tell me, revise the plan, re-dispatch max
+the plan and run the Final verification commands yourself on
+`ticket/<id>` after integration. On failure or blocker → tell me, revise the plan, re-dispatch max
 2 times (never retry silently); beyond that → ask me how to proceed.
 Advance to the next wave only on green. After the final wave →
 summarize: work done, deviations from the plan, verification results,

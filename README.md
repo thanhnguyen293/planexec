@@ -20,9 +20,8 @@ flowchart TD
     G1 -- Execute --> E["Step 4 — Detailed plan<br/>writing-plans + executor-plan skills<br/>→ docs/plans/&lt;id&gt;.md (≤400 lines/phase)<br/>phases grouped into execution waves"]
     E --> G2{"you review the plan file:<br/>Dispatch / Modify / Cancel"}
     G2 -- Modify --> E
-    G2 -- Dispatch --> G3["allow dialog<br/>(task: executor: ask)"]
-    G3 --> X["Executor(s) — clean session, cheap model<br/>one per phase · parallel within a wave (isolated git worktrees)<br/>branch ticket/&lt;id&gt;[-&lt;phase&gt;] · follows plan step by step<br/>verify + commit per step · stops on blockers"]
-    X --> V["Step 5 — Planner verifies per wave<br/>merges phase branches · reads git diff · runs final verification itself"]
+    G2 -- Dispatch --> X["Executor(s) — clean session, cheap model<br/>one per phase · parallel within a wave (isolated git worktrees)<br/>branch ticket/&lt;id&gt;[-&lt;phase&gt;] · follows plan step by step<br/>verify + commit per step · stops on blockers"]
+    X --> V["Step 5 — Planner verifies per wave<br/>cherry-picks phase branches onto ticket/&lt;id&gt; · reads git diff · runs final verification itself"]
     V -- "fail / blocker (max 2 retries, never silent)" --> E
     V -- pass --> Z["Summary → you review diff, run app, merge"]
 ```
@@ -32,8 +31,8 @@ executor runs in a clean child session and only follows the plan file.
 Multi-phase plans group phases into **execution waves**: phases in a
 wave touch disjoint file sets, so their executors run in parallel in
 isolated git worktrees (branch `ticket/<id>-<phase>`), and the planner
-merges them back into `ticket/<id>` before verifying and starting the
-next wave.
+cherry-picks them back into `ticket/<id>` before verifying and starting
+the next wave.
 
 ## Current configuration
 
@@ -41,7 +40,7 @@ next wave.
 
 | Agent | Model | Key config |
 |---|---|---|
-| planner (primary) | `openai/gpt-5.6-sol` | `temperature: 0.1` · edit: deny except `docs/plans/*` · bash: read-only whitelist (`git log/diff/status`, `grep`) + `flutter analyze/test` + `git branch/switch/merge/worktree` (wave execution) · external read allowlist for `~/.pub-cache/hosted/pub.dev/*` · task: `explore` allow, `executor` ask · question allow |
+| planner (primary) | `openai/gpt-5.6-sol` | `temperature: 0.1` · edit: deny except `docs/plans/*` · bash: read-only whitelist (`git log/diff/status`, `grep`) + `flutter analyze/test` + `git branch/switch/cherry-pick/worktree` (wave execution) · external read allowlist for `~/.pub-cache/hosted/pub.dev/*` · task: `explore` allow, `executor` allow · question allow |
 | executor (subagent) | `opencode-go/deepseek-v4-flash` | `temperature: 0` · `steps: 40` · `hidden: true` · edit/bash allow · webfetch deny |
 | explore (built-in) | `opencode-go/deepseek-v4-pro` | overridden in `opencode.json` (read-only by design) |
 
@@ -49,8 +48,8 @@ next wave.
 
 | Tool | Executor model | Notes |
 |---|---|---|
-| Claude Code | `haiku` | Anthropic models only; planner = `/planner` slash command in the main thread; hard gating via the `planner-guard` hook (PreToolUse blocks Edit/Write outside `docs/plans/`, disable with `/planner-off`); checkpoints via AskUserQuestion; wave phases run as worktree-isolated parallel subagents |
-| Codex CLI | `gpt-5.4-mini` | `model_reasoning_effort: low` · `sandbox_mode: workspace-write`; planner = `/planner` custom prompt; prompts install to `~/.codex/prompts` (global); waves run in parallel worktrees when concurrent subagents are available, else sequentially |
+| Claude Code | `haiku` | Anthropic models only; planner = `/planner` slash command in the main thread; hard gating via the `planner-guard` hook (PreToolUse blocks Edit/Write outside `docs/plans/`, disable with `/planner-off`); checkpoints via AskUserQuestion; executor auto-allowed (`permissions.allow: ["Agent(executor)"]`) so dispatch has no extra allow dialog; wave phases run as worktree-isolated parallel subagents, integrated with `git cherry-pick ticket/<id>..ticket/<id>-<phase>` (not merge) onto `ticket/<id>` |
+| Codex CLI | `gpt-5.4-mini` | `model_reasoning_effort: low` · `sandbox_mode: workspace-write`; planner = `/planner` custom prompt; prompts install to `~/.codex/prompts` (global); executor dispatch follows Codex's own `approval_policy` (planexec sets no per-executor gate); waves run in parallel worktrees when concurrent subagents are available (else sequentially), phases cherry-picked onto `ticket/<id>` (not merge) |
 
 ## Components
 
@@ -97,7 +96,9 @@ The script copies agents/commands/skills; for OpenCode it also merges
 `opencode.json` (preserving your existing mcp/provider config). For
 Claude Code it also installs the `planner-guard` hook and registers it
 in `settings.json` (existing hooks are preserved; skipped if already
-registered). Codex custom prompts are installed globally to
+registered), and adds `Agent(executor)` to `permissions.allow` so
+dispatching the executor in step 5 raises no permission dialog. Codex
+custom prompts are installed globally to
 `~/.codex/prompts`, even when installing agents/skills into a local
 project.
 
@@ -122,6 +123,9 @@ project.
 /planner TICKET-123: issue description...
 ```
 
-Approve at 3 checkpoints: high-level plan (Execute/Modify/Cancel) →
-detailed plan file in `docs/plans/` (Dispatch/Modify/Cancel) → the
-allow dialog when the executor is dispatched.
+Approve at 2 checkpoints: high-level plan (Execute/Modify/Cancel) →
+detailed plan file in `docs/plans/` (Dispatch/Modify/Cancel). On
+Dispatch the executor runs immediately — planexec adds no separate allow
+dialog (OpenCode `task: executor allow`; Claude Code
+`permissions.allow: ["Agent(executor)"]`; Codex follows its own
+`approval_policy`).

@@ -68,15 +68,20 @@ is checked out (waves branch off it).
   `git worktree add .worktrees/<phase> -b ticket/<id>-<phase> ticket/<id>`,
   give each executor ONLY its own phase file path + its worktree path
   (`.worktrees/<phase>/`) + its branch (`ticket/<id>-<phase>`), and
-  when the whole wave returns merge each `ticket/<id>-<phase>` into
-  `ticket/<id>` and remove the worktrees. Disjoint file sets ⇒ no
-  conflicts; a merge conflict means the wave split was wrong — stop
-  and ask me. If concurrent executors are NOT available, run the
-  wave's phases sequentially (order within a wave does not matter).
+  when the whole wave returns cherry-pick each phase's commits onto
+  `ticket/<id>`, one phase at a time
+  (`git cherry-pick ticket/<id>..ticket/<id>-<phase>` — the range
+  replays only that phase's own commits, correct even after earlier
+  phases were picked), then `git worktree remove .worktrees/<phase>`
+  and `git branch -D ticket/<id>-<phase>`. Disjoint file sets ⇒ no
+  conflicts; a cherry-pick conflict means the wave split was wrong —
+  run `git cherry-pick --abort` and ask me. If concurrent executors are
+  NOT available, run the wave's phases sequentially (order within a
+  wave does not matter).
 
 After each wave: do NOT trust executor reports - read git diff
 against the plan and run the Final verification commands yourself on
-the merged tree. On failure or blocker → tell me, revise the plan,
+`ticket/<id>` after integration. On failure or blocker → tell me, revise the plan,
 re-dispatch max 2 times (never retry silently); beyond that → ask me
 how to proceed. Advance to the next wave only on green. After the
 final wave → summarize: work done, deviations from the plan,
